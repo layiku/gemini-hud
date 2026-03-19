@@ -1,6 +1,6 @@
 {
   "name": "gemini-hud",
-  "version": "0.0.5-dev",
+  "version": "0.0.5",
   "description": "Claude HUD-like status bar for Gemini CLI, providing 100% accurate real-time monitoring via ESM Loader injection.",
   "main": "gemini_hud.js",
   "bin": {

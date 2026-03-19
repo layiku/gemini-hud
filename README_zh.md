@@ -1,4 +1,4 @@
-# gemini-hud (v0.0.5-dev)
+# gemini-hud (v0.0.5)
 
 [中文](README_zh.md) | [English](README.md)
 

@@ -1,5 +1,5 @@
 /**
- * gemini-hud Core Logic Test Script (v0.0.5-dev Evolution)
+ * gemini-hud Core Logic Test Script (v0.0.5 Evolution)
  * Verified against the latest ESM Loader, Multi-session architecture, and zero-latency IPC.
  */
 
