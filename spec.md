@@ -4,7 +4,7 @@
 | Item | Content |
 | :--- | :--- |
 | **Project Name** | gemini-hud |
-| **Spec Version** | 0.0.3 (Early Iteration) |
+| **Spec Version** | 0.0.5-dev (AST Injection & IPC) |
 | **Status** | Finalized |
 | **Core Goal** | High-precision Agent monitoring via memory-level injection |
 
