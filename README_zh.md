@@ -44,7 +44,12 @@ NODE_OPTIONS="--loader ./gemini-esm-hook.js" node gemini-hud.js
 
 ## 配置指南
 
-gemini-hud 会优先读取当前项目目录下的 `.gemini-hudrc`，若不存在则查找家目录下的 `~/.gemini-hudrc`。
+gemini-hud 支持多层级配置覆盖，加载优先级如下：
+1. **项目级**：当前工作目录下的 `.gemini-hudrc`。
+2. **全局级**：用户家目录下的 `~/.gemini-hudrc`。
+3. **内置默认**：程序内部硬编码的初始设置。
+
+> **💡 重要提醒**：若要自定义配置，你需要将项目中的 `.gemini-hudrc.example` 文件重命名为 `.gemini-hudrc`（放在当前目录或家目录均可）。如果程序未找到任何配置文件，将自动按照内置代码的默认值运行。
 
 ### 完整配置示例 (`.gemini-hudrc`)
 

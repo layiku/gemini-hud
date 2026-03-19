@@ -44,7 +44,12 @@ NODE_OPTIONS="--loader ./gemini-esm-hook.js" node gemini-hud.js
 
 ## Configuration Guide
 
-gemini-hud looks for `.gemini-hudrc` in the current project directory, then falls back to `~/.gemini-hudrc`.
+gemini-hud supports multi-level configuration. It resolves settings in the following order of priority:
+1. **Project-level**: `.gemini-hudrc` in the current working directory.
+2. **Global-level**: `~/.gemini-hudrc` in your user home directory.
+3. **Defaults**: Built-in hardcoded values.
+
+> **💡 Important**: To customize your settings, you must rename the provided `.gemini-hudrc.example` file to `.gemini-hudrc` in your project or home directory. If no config file is found, the program will run using its internal defaults.
 
 ### Full Configuration Example (`.gemini-hudrc`)
 
