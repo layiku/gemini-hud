@@ -1,10 +1,11 @@
 import * as pty from 'node-pty';
 import ansiEscapes from 'ansi-escapes';
 import stripAnsi from 'strip-ansi';
-import { homedir, cpus, platform } from 'os';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { homedir, cpus, platform, tmpdir } from 'os';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { exec } from 'child_process';
+import net from 'net';
 
 // ====================== Configuration ======================
 const LAYOUT_TEMPLATES = {
@@ -45,8 +46,6 @@ const DEFAULT_CONFIG = {
   },
   gemini: { command: 'gemini', autoRestart: true, restartDelayMs: 5000 },
   paths: {
-    state: join(homedir(), '.gemini-hud-state.json'),
-    target: join(homedir(), '.gemini-hud-target.txt'),
     globalConfig: join(homedir(), '.gemini-hudrc'),
     projectConfig: join(process.cwd(), '.gemini-hudrc')
   }
@@ -82,6 +81,12 @@ const loadConfig = () => {
 };
 
 const CONFIG = loadConfig();
+
+// IPC Server Setup
+const IPC_PATH = platform() === 'win32' 
+  ? `\\\\.\\pipe\\gemini-hud-${process.pid}` 
+  : join(tmpdir(), `gemini-hud-${process.pid}.sock`);
+let ipcServer = null;
 
 // ====================== Cache ======================
 const CACHE = {
@@ -143,12 +148,11 @@ const updateFilePath = () => {
   STATE.currentFilePath = CONFIG.hud.pathStyle === 'short' ? cwd.replace(homedir(), '~') : cwd;
 };
 
-const syncStateFile = () => {
-  const STATE_FILE = CONFIG.paths.state;
-  if (!existsSync(STATE_FILE)) return;
-
+/**
+ * Handle incoming telemetry from Hook via IPC
+ */
+const handleIpcData = (rawContent) => {
   try {
-    const rawContent = readFileSync(STATE_FILE, 'utf8');
     if (!rawContent.trim()) return;
     
     const sessionList = JSON.parse(rawContent);
@@ -343,75 +347,126 @@ const renderHUD = throttle(() => {
   if (ansiEscapes.cursorRestore) process.stdout.write(ansiEscapes.cursorRestore);
 }, 1000 / CONFIG.performance.renderFps);
 
+// ====================== PTY ======================
+let ptyProc = null;
+const spawnOrResizePty = () => {
+  const { cols, rows } = CACHE.term;
+  const ptyRows = rows - CONFIG.hud.rows;
+  if (ptyProc) {
+    if (cols !== CACHE.pty.cols || ptyRows !== CACHE.pty.rows) {
+      ptyProc.resize(cols, ptyRows);
+      CACHE.pty = { cols, rows: ptyRows };
+    }
+    return;
+  }
+  CACHE.pty = { cols, rows: ptyRows };
+  const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
+  const args = process.platform === 'win32' ? ['-NoProfile', '-Command', CONFIG.gemini.command] : ['-c', CONFIG.gemini.command];
+  try {
+    ptyProc = pty.spawn(shell, args, { 
+      name: 'xterm-256color', 
+      cols: size.cols, 
+      rows: size.rows - CONFIG.hud.rows, 
+      cwd: process.cwd(), 
+      env: { ...process.env, GEMINI_HUD_IPC: IPC_PATH } 
+    });
+    ptyProc.on('data', data => {
+      process.stdout.write(data);
+      parseGeminiOutput(data);
+    });
+    ptyProc.on('exit', (code) => {
+      if (code === 0) process.exit(0);
+      else if (CONFIG.gemini.autoRestart) setTimeout(() => { ptyProc = null; spawnOrResizePty(); }, CONFIG.gemini.restartDelayMs);
+      else process.exit(code || 1);
+    });
+  } catch (err) { }
+};
+
+// ====================== Event Handlers ======================
+const handleStdin = (data) => {
+  if (data.length === 1 && data[0] === 0x03) {
+    process.emit('SIGINT');
+    return;
+  }
+  const str = data.toString();
+  if (str.length > 0) {
+    CACHE.echoQueue.push(stripAnsi(str));
+    if (CACHE.echoQueue.length > 50) CACHE.echoQueue.shift();
+  }
+  if (ptyProc) ptyProc.write(data);
+};
+
+let size = { cols: 80, rows: 24 };
+
+const handleResize = debounce(() => {
+  if (CACHE.isResizing) return;
+  CACHE.isResizing = true;
+  CACHE.term = getSafeTermSize();
+  size = CACHE.term;
+  process.stdout.write(`\x1b[1;${CACHE.term.rows - CONFIG.hud.rows}r`);
+  if (ptyProc) ptyProc.resize(CACHE.term.cols, CACHE.term.rows - CONFIG.hud.rows);
+  renderHUD();
+  CACHE.isResizing = false;
+}, CONFIG.performance.resizeDebounceMs);
+
 // ====================== Lifecycle ======================
 const start = () => {
-  const nodeVersion = parseInt(process.versions.node.split('.')[0], 10);
-  if (nodeVersion < 20) {
-    console.error('❌ Error: gemini-hud requires Node.js version 20+');
+  const nodeVersion = process.versions.node.split('.');
+  const major = parseInt(nodeVersion[0], 10);
+  const minor = parseInt(nodeVersion[1], 10);
+  if (major < 20 || (major === 20 && minor < 6)) {
+    console.error('❌ Error: gemini-hud requires Node.js version 20.6.0+ to support modern ESM --import hooks.');
     process.exit(1);
   }
 
-  const size = getSafeTermSize();
+  size = getSafeTermSize();
   CACHE.term = size;
+  
+  // Clean Terminal
   process.stdout.write(ansiEscapes.clearTerminal || '\x1b[2J\x1b[H');
   process.stdout.write(`\x1b[1;${size.rows - CONFIG.hud.rows}r`);
   process.stdout.write(ansiEscapes.cursorTo(0, size.rows - CONFIG.hud.rows - 1));
 
-  console.log(`🚀 gemini-hud starting...`);
-  process.stdin.setRawMode(true);
-  process.stdin.resume();
-  process.stdin.on('data', (data) => {
-    if (data.length === 1 && data[0] === 0x03) process.emit('SIGINT');
-    const str = data.toString();
-    if (str.length > 0) {
-      CACHE.echoQueue.push(stripAnsi(str));
-      if (CACHE.echoQueue.length > 50) CACHE.echoQueue.shift();
-    }
-    // Forward all input directly to PTY, no local HUD commands
-    if (ptyProc) ptyProc.write(data);
+  // Initialize IPC Server
+  ipcServer = net.createServer((socket) => {
+    let buffer = '';
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString();
+      let newlineIndex;
+      while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+        const payload = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        handleIpcData(payload);
+      }
+    });
   });
 
-  const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
-  const args = process.platform === 'win32' ? ['-NoProfile', '-Command', CONFIG.gemini.command] : ['-c', CONFIG.gemini.command];
-  const ptyProc = pty.spawn(shell, args, { name: 'xterm-256color', cols: size.cols, rows: size.rows - CONFIG.hud.rows, cwd: process.cwd(), env: process.env });
-  
-  ptyProc.on('data', data => {
-    process.stdout.write(data);
-    parseGeminiOutput(data);
+  ipcServer.listen(IPC_PATH, () => {
+    console.log(`🚀 gemini-hud starting...`);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on('data', handleStdin);
+
+    spawnOrResizePty();
+
+    setInterval(updateSystemTime, 1000);
+    updateCpuUsage();
+    setInterval(updateCpuUsage, 1000);
+    updateGitBranch();
+    setInterval(updateGitBranch, CONFIG.performance.gitUpdateIntervalMs);
+    updateFilePath();
+    setInterval(renderHUD, 1000 / CONFIG.performance.renderFps);
+    process.stdout.on('resize', handleResize);
   });
 
-  ptyProc.on('exit', (code) => {
-    if (code === 0) process.exit(0);
-    else if (CONFIG.gemini.autoRestart) setTimeout(() => start(), CONFIG.gemini.restartDelayMs);
-    else process.exit(code || 1);
-  });
-
-  setInterval(updateSystemTime, 1000);
-  updateCpuUsage();
-  setInterval(updateCpuUsage, 1000);
-  updateGitBranch();
-  setInterval(updateGitBranch, CONFIG.performance.gitUpdateIntervalMs);
-  updateFilePath();
-  setInterval(syncStateFile, 1000);
-  setInterval(renderHUD, 1000 / CONFIG.performance.renderFps);
-  
-  const handleResize = debounce(() => {
-    if (CACHE.isResizing) return;
-    CACHE.isResizing = true;
-    const newSize = getSafeTermSize();
-    CACHE.term = newSize;
-    process.stdout.write(`\x1b[1;${newSize.rows - CONFIG.hud.rows}r`);
-    if (ptyProc) ptyProc.resize(newSize.cols, newSize.rows - CONFIG.hud.rows);
-    renderHUD();
-    CACHE.isResizing = false;
-  }, CONFIG.performance.resizeDebounceMs);
-  
-  process.stdout.on('resize', handleResize);
-  
-  process.on('SIGINT', () => {
-    process.stdout.write('\x1b[r');
+  const cleanup = () => {
+    resetScrollRegion();
+    if (ansiEscapes.clearTerminal) process.stdout.write(ansiEscapes.clearTerminal);
+    if (ipcServer) ipcServer.close();
     process.exit(0);
-  });
+  };
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
 };
 
 start();

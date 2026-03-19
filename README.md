@@ -11,7 +11,7 @@ A high-performance terminal status bar (HUD) for Gemini CLI. It leverages **ESM 
 - **Smart Plan Capture**: Automatically extracts task lists from AI Markdown responses (`## Plan`).
 - **Echo Cancellation**: Advanced filtering prevents your terminal input from interfering with HUD status parsing.
 - **Adherent Layout**: Fixed bottom status bar with a "glued" CLI output layout that prevents empty gaps on startup.
-- **Resource Optimized**: Features "Dirty Checking" to minimize disk I/O and `WeakRef` to ensure zero memory leaks.
+- **Resource Optimized**: Features "Dirty Checking" and Zero-Latency IPC via Named Pipes to completely eliminate disk I/O, using `WeakRef` to ensure zero memory leaks.
 - **Pseudo Terminal Isolation**: Independent PTY partition ensures your CLI experience remains smooth and responsive.
 
 ## Requirements
@@ -33,13 +33,13 @@ To enable high-precision monitoring, you must inject the HUD hook using the `NOD
 
 ### Windows (PowerShell)
 ```powershell
-$env:NODE_OPTIONS = "--loader file:///C:/path/to/gemini-esm-hook.js"
+$env:NODE_OPTIONS = "--import file:///C:/path/to/gemini-hud-preload.js"
 node gemini-hud.js
 ```
 
 ### Linux / macOS
 ```bash
-NODE_OPTIONS="--loader ./gemini-esm-hook.js" node gemini-hud.js
+NODE_OPTIONS="--import ./gemini-hud-preload.js" node gemini-hud.js
 ```
 
 ## Configuration Guide
@@ -144,7 +144,7 @@ The HUD will automatically display `🎯 0/2`. As the AI outputs `✅` or `Step 
 It uses the latest ESM Loader Hooks to perform code injection without modifying the `gemini-cli` source files. This API is only stable in Node 20+.
 
 ### Q: Does it slow down the AI?
-No. The hook performs "Dirty Checking" in memory and only writes to the state bridge when data actually changes (e.g., when a new token is generated).
+No. The hook performs "Dirty Checking" in memory and transmits data via a zero-latency IPC Named Pipe only when data actually changes (e.g., when a new token is generated). There is zero disk I/O overhead.
 
 ## License
 MIT License

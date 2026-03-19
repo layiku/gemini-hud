@@ -16,35 +16,34 @@
 ```mermaid
 graph TD
     A[gemini-hud.js Orchestrator] -- 1. Spawn PTY --> B[gemini-cli Process]
-    B -- 2. Injected via NODE_OPTIONS --> C[gemini-esm-hook.js Loader]
-    C -- 3. Hook Constructor --> D{Session Instances}
-    D -- 4. Raw Memory Data --> C
-    C -- 5. Atomic Write via Rename --> E[.gemini-hud-state.json]
-    A -- 6. Periodic Read & Aggregate --> E
-    B -- 7. Stdout Stream --> A
-    A -- 8. Regex Plan Capture --> F[Internal State Engine]
-    A -- 9. ANSI Escape Sequences --> G[Terminal HUD Layout]
+    A -- 2. Create IPC Server --> A
+    B -- 3. Injected via NODE_OPTIONS --> C[gemini-hud-preload.js (Main Thread)]
+    C -- 4. Registers Loader --> D[gemini-hud-loader.js (Worker)]
+    D -- 5. Hook Constructor --> E{Session Instances}
+    E -- 6. Raw Memory Data --> C
+    C -- 7. Stream Data via IPC --> A
+    B -- 8. Stdout Stream --> A
+    A -- 9. Regex Plan Capture --> F[Internal State Engine]
+    A -- 10. ANSI Escape Sequences --> G[Terminal HUD Layout]
 ```
 
 ### 2.1 Module Description
-- **Orchestrator (gemini-hud.js)**: The main entry point. It manages the terminal scroll regions, spawns the `gemini-cli` sub-process, and aggregates telemetry from multiple sources.
-- **Hook Plugin (gemini-esm-hook.js)**: A specialized ESM Loader that performs bytecode-level source transformation to capture internal class instances.
-- **State Bridge (.gemini-hud-state.json)**: A high-speed, I/O-optimized JSON file used as an inter-process communication (IPC) channel.
+- **Orchestrator (gemini-hud.js)**: The main entry point. It manages the terminal scroll regions, spawns the `gemini-cli` sub-process, and hosts the IPC Server to aggregate telemetry.
+- **Hook Plugin (gemini-hud-preload.js & gemini-hud-loader.js)**: Uses the modern `node:module` `register` API. The preload script runs in the main thread to handle memory safety and IPC streaming, while the loader thread transforms bytecode to capture internal instances.
+- **IPC Bridge (Named Pipes/Domain Sockets)**: A high-speed, zero-latency, zero-disk I/O communication channel established between the hook and the orchestrator.
 
 ---
 
-## 3. Implementation Details: The Hook Layer (`gemini-esm-hook.js`)
+## 3. Implementation Details: The Hook Layer
 
 ### 3.1 Injection Mechanism
-Must implement the Node.js `load` hook to intercept modules matching `@google/gemini-cli-core`.
+Must implement the Node.js `load` hook in a worker thread (`gemini-hud-loader.js`) to intercept modules matching `@google/gemini-cli-core`.
 - **Transformation**: Injects `globalThis.__HUD_REGISTER_SESSION__(this)` into the `Session` class constructor.
-- **Memory Safety**: Uses `WeakRef` and `FinalizationRegistry` to ensure session monitoring does not prevent garbage collection.
+- **Memory Safety**: `gemini-hud-preload.js` runs in the main thread, receiving the instance and using `WeakRef` and `FinalizationRegistry` to ensure session monitoring does not prevent garbage collection.
 
-### 3.2 I/O Optimization & Atomicity
-- **Dirty Checking**: The hook compares the serialized state string before writing. It only hits the disk if the state has actually changed.
-- **Atomic Write Strategy**: To prevent race conditions during concurrent read/write:
-    1. Write data to a temporary file (`.json.tmp`).
-    2. Use `fs.renameSync` to atomically overwrite the target bridge file.
+### 3.2 I/O Optimization & IPC
+- **Dirty Checking**: The preload script compares the serialized state string before transmitting. It only sends payloads over the socket if the state has actually changed.
+- **Zero-Latency Streaming**: Replaced file system polling with `net.Socket`. Payloads are framed using newline characters (`\n`) to ensure clean boundaries across the pipe.
 
 ---
 
@@ -55,7 +54,7 @@ Must implement the Node.js `load` hook to intercept modules matching `@google/ge
 - **Scroll Locking**: Uses ANSI `\x1b[1;Nr` to define a scrolling region that excludes the HUD line.
 
 ### 4.2 Aggregation Logic
-- **Token Summation**: Sums `input` and `output` tokens from all active sessions found in the bridge file.
+- **Token Summation**: Sums `input` and `output` tokens from all active sessions received via the IPC socket.
 - **Model Logic**: If multiple different models are detected across sessions, displays `Multi Gemini Model`.
 - **Status Locking**: Only triggers the Regex-based "Plan Capture" engine when the Hook reports that the AI is in a `running` state.
 
@@ -66,14 +65,14 @@ Must implement the Node.js `load` hook to intercept modules matching `@google/ge
 ---
 
 ## 5. Runtime Requirements
-- **Node.js**: v20.0.0+ (Strict requirement for ESM Loader API).
+- **Node.js**: v20.6.0+ (Strict requirement for the modern `module.register` API).
 - **Startup Command**:
   ```powershell
-  $env:NODE_OPTIONS = "--loader file:///C:/path/to/gemini-esm-hook.js"
+  $env:NODE_OPTIONS = "--import file:///C:/path/to/gemini-hud-preload.js"
   node gemini-hud.js
   ```
 
 ## 6. Error Handling & Cleanup
-- **Version Guard**: Exit if `node < 20`.
+- **Version Guard**: Exit if `node < 20.6.0`.
 - **Race Conditions**: Handle empty or partial JSON reads during high-frequency updates.
 - **Graceful Exit**: Restore scroll region (`\x1b[r`) on `SIGINT` or normal termination.

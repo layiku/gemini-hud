@@ -16,35 +16,34 @@
 ```mermaid
 graph TD
     A[gemini-hud.js 编排器] -- 1. 启动 PTY --> B[gemini-cli 进程]
-    B -- 2. 通过 NODE_OPTIONS 注入 --> C[gemini-esm-hook.js 加载器]
-    C -- 3. Hook 构造函数 --> D{Session 会话实例}
-    D -- 4. 原始内存数据 --> C
-    C -- 5. 通过 Rename 实现原子写入 --> E[.gemini-hud-state.json]
-    A -- 6. 定时读取并聚合 --> E
-    B -- 7. 标准输出流 --> A
-    A -- 8. 正则计划捕获 --> F[内部状态引擎]
-    A -- 9. ANSI 转义序列 --> G[终端 HUD 布局]
+    A -- 2. 创建 IPC 服务端 --> A
+    B -- 3. 通过 NODE_OPTIONS 注入 --> C[gemini-hud-preload.js (主线程)]
+    C -- 4. 注册加载器 --> D[gemini-hud-loader.js (Worker)]
+    D -- 5. Hook 构造函数 --> E{Session 会话实例}
+    E -- 6. 原始内存数据 --> C
+    C -- 7. 通过 IPC 流式传输 --> A
+    B -- 8. 标准输出流 --> A
+    A -- 9. 正则计划捕获 --> F[内部状态引擎]
+    A -- 10. ANSI 转义序列 --> G[终端 HUD 布局]
 ```
 
 ### 2.1 模块说明
-- **编排器 (gemini-hud.js)**：主入口程序。管理终端滚动区域，启动 `gemini-cli` 子进程，并聚合遥测数据。
-- **钩子插件 (gemini-esm-hook.js)**：专门的 ESM Loader，在字节码层面执行源码转换以捕获内部类实例。
-- **状态桥接文件 (.gemini-hud-state.json)**：高性能 JSON 文件，用作进程间通信（IPC）通道。
+- **编排器 (gemini-hud.js)**：主入口程序。管理终端滚动区域，启动 `gemini-cli` 子进程，并托管 IPC 服务端以聚合遥测数据。
+- **钩子插件 (gemini-hud-preload.js & gemini-hud-loader.js)**：使用现代的 `node:module` `register` API。预加载脚本运行在主线程中，处理内存安全和 IPC 流传输；加载器线程则执行字节码转换以捕获内部实例。
+- **IPC 桥接 (Named Pipes/Domain Sockets)**：建立在钩子和编排器之间的高速、零延迟、零磁盘 I/O 通信通道。
 
 ---
 
-## 3. 实现细节：钩子层 (`gemini-esm-hook.js`)
+## 3. 实现细节：钩子层
 
 ### 3.1 注入机制
-实现 Node.js `load` 钩子以拦截匹配 `@google/gemini-cli-core` 的模块。
+必须在 Worker 线程 (`gemini-hud-loader.js`) 中实现 Node.js `load` 钩子，以拦截匹配 `@google/gemini-cli-core` 的模块。
 - **代码转换**：向 `Session` 类构造函数注入 `globalThis.__HUD_REGISTER_SESSION__(this)`。
-- **内存安全**：使用 `WeakRef` 和 `FinalizationRegistry` 确保监控不会阻碍垃圾回收。
+- **内存安全**：`gemini-hud-preload.js` 运行在主线程，接收实例并使用 `WeakRef` 和 `FinalizationRegistry` 确保监控不会阻碍垃圾回收。
 
-### 3.2 I/O 优化与原子性
-- **脏检查**：在写入前对比序列化状态，仅当内容变化时才执行磁盘写入。
-- **原子写入策略**：为防止并发读写下的竞争条件：
-    1. 先将数据写入临时文件 (`.json.tmp`)。
-    2. 使用 `fs.renameSync` 瞬间覆盖目标桥接文件。
+### 3.2 I/O 优化与 IPC 通信
+- **脏检查**：预加载脚本在传输前会对比序列化后的状态字符串。只有当状态发生实质性变化时，才通过 Socket 发送数据负载。
+- **零延迟流式传输**：使用 `net.Socket` 替代了文件系统轮询。数据负载使用换行符 (`\n`) 进行成帧，确保管道传输中的边界清晰。
 
 ---
 
@@ -55,7 +54,7 @@ graph TD
 - **滚动锁定**：利用 ANSI `\x1b[1;Nr` 定义排除 HUD 行的滚动区域。
 
 ### 4.2 聚合逻辑
-- **Token 求和**：累加桥接文件中所有活跃会话的 Token 消耗。
+- **Token 求和**：累加通过 IPC 接收到的所有活跃会话的 Token 消耗。
 - **模型逻辑**：检测到不同模型时显示 `Multi Gemini Model`。
 - **状态锁**：仅当 AI 处于 `running` 状态时才激活正则解析引擎。
 

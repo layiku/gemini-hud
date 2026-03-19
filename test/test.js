@@ -1,6 +1,6 @@
 /**
  * gemini-hud Core Logic Test Script (v0.0.3 Evolution)
- * Verified against the latest ESM Loader & Multi-session architecture.
+ * Verified against the latest ESM Loader, Multi-session architecture, and zero-latency IPC.
  */
 
 import assert from 'assert';

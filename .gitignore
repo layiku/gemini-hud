@@ -7,7 +7,6 @@ dist/
 build/
 
 # HUD Temporary State Files (IPC Bridge)
-.gemini-hud-state.json
 .gemini-hud-target.txt
 
 # Local configuration
