@@ -1,0 +1,71 @@
+{
+  // ========== HUD Core Display Configuration ==========
+  "hud": {
+    // Number of terminal rows occupied by HUD (fixed to 1, no need to modify)
+    "rows": 1,
+    // Text colors for different running states (ANSI escape sequences, supports standard terminal colors)
+    "colors": {
+      // Idle state: green
+      "idle": "\x1b[32m",
+      // Running state: blue
+      "running": "\x1b[34m",
+      // Error state: red
+      "error": "\x1b[31m"
+    },
+    // Display switch for each monitoring item (true=show, false=hide)
+    "show": {
+      "model": true,                // Gemini model name (e.g., gemini-1.5-flash)
+      "tokens": true,               // Token usage + progress bar
+      "mcp": true,                  // Number of running MCP tools
+      "target": true,               // Task progress (parses ✅ markers in target: commands)
+      "gitBranch": true,            // Git branch (displays "no git" for non-Git repositories)
+      "currentFilePath": true,      // Current working directory
+      "time": true,                 // Real-time system time (HH:MM:SS)
+      "cpuUsage": true              // CPU usage (refreshed every 1 second)
+    },
+    // Token progress bar style configuration
+    "progressBar": {
+      "full": "█",                  // Progress bar filled character
+      "empty": "░",                 // Progress bar empty character
+      "length": 50                  // Total length of progress bar (number of characters)
+    },
+    // Path display style: short (abbreviated, ~ replaces user directory) / full (full absolute path)
+    "pathStyle": "short",
+    // Layout template configuration
+    "layout": {
+      // Layout template type: default/minimal/full/dev/clean/custom
+      // - default: General scenarios (time → model → Token → status → task)
+      // - minimal: Minimal mode (model → status)
+      // - full: Full display (all monitoring items)
+      // - dev: Developer mode (focus on Git/path/CPU)
+      // - clean: Clean mode (time → Token → status → task)
+      // - custom: Custom order (requires customOrder configuration)
+      "template": "default",
+      // Custom display order (only effective when template=custom)
+      // Supported keys: time/cpu/model/tokens/mcp/git/path/status/target
+      "customOrder": []
+    }
+  },
+
+  // ========== Performance Optimization Configuration ==========
+  "performance": {
+    // Terminal resize debounce delay (ms): Avoid redraw lag caused by frequent window adjustments
+    "resizeDebounceMs": 30,
+    // Resize trigger threshold (pixels): No redraw if window size change is less than this value
+    "renderFps": 30,
+    // Maximum HUD rendering frame rate (FPS): Controls redraw frequency, 30FPS is smooth and low consumption
+    "gitUpdateIntervalMs": 5000,
+    // Git branch update interval (ms): Avoid frequent execution of git commands to consume resources
+    "resizeThreshold": 2
+  },
+
+  // ========== Gemini CLI Running Configuration ==========
+  "gemini": {
+    // Gemini CLI startup command (modify if custom path is needed, e.g., "/usr/local/bin/gemini-cli")
+    "command": "gemini-cli",
+    // Whether to auto-restart after Gemini CLI crashes
+    "autoRestart": true,
+    // Restart delay (ms): Avoid frequent restarts (e.g., crashes caused by network issues)
+    "restartDelayMs": 5000
+  }
+}

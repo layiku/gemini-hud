@@ -1,0 +1,47 @@
+{
+  "name": "gemini-hud",
+  "version": "0.0.3",
+  "description": "Claude HUD-like status bar for Gemini CLI, providing 100% accurate real-time monitoring via ESM Loader injection.",
+  "main": "gemini_hud.js",
+  "bin": {
+    "gemini-hud": "./gemini_hud.js"
+  },
+  "scripts": {
+    "start": "node gemini_hud.js",
+    "pkg": "pkg . --out-path dist/",
+    "test": "node test/test.js"
+  },
+  "keywords": [
+    "gemini",
+    "cli",
+    "hud",
+    "status-bar",
+    "terminal",
+    "real-time-monitoring",
+    "esm-loader"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "ansi-escapes": "^5.0.0",
+    "node-pty": "^1.0.0",
+    "strip-ansi": "^7.1.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  },
+  "pkg": {
+    "targets": [
+      "node18-win-x64",
+      "node18-macos-x64",
+      "node18-linux-x64"
+    ],
+    "outputPath": "dist",
+    "assets": [],
+    "scripts": []
+  }
+}
