@@ -1,6 +1,6 @@
 {
   "name": "gemini-hud",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "Zero-intrusion terminal companion monitor for Gemini CLI. Reads native session files to display real-time token usage, model, tool activity, and session stats in a split pane.",
   "main": "gemini-hud.js",
   "bin": {

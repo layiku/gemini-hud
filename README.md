@@ -1,4 +1,4 @@
-# gemini-hud (v0.3.0)
+# gemini-hud (v0.5.0)
 
 [English](README.md) | [中文](README_zh.md)
 
@@ -7,6 +7,13 @@ A zero-intrusion terminal companion monitor for Gemini CLI. Run it in a split pa
 ## How It Works
 
 Gemini CLI automatically writes your session history to `~/.gemini/tmp/<project>/chats/session-*.json` as you work. gemini-hud **watches that file** and renders the data in your terminal. No injection, no wrapping, no process hooks.
+
+```mermaid
+flowchart LR
+    A["Gemini CLI"] -->|"writes session JSON"| B["~/.gemini/tmp/<project>/chats/session-*.json"]
+    B -->|"fs.watch + fallback polling"| C["gemini-hud"]
+    C -->|"renders ANSI HUD"| D["Split terminal pane"]
+```
 
 ```
 ┌─ gemini-hud ──────────────────── [default] 14:32:05 ─┐
@@ -139,7 +146,9 @@ cp .gemini-hudrc.example .gemini-hudrc
   "colors": {},
   "performance": {
     "renderFps": 10,
-    "pollIntervalMs": 2000
+    "pollIntervalMs": 2000,
+    "analysisWarnMs": 1000,
+    "degradedRenderFps": 2
   },
   "project": {
     "name": null
@@ -177,6 +186,8 @@ Per-key ANSI color overrides. Keys match theme roles: `accent`, `label`, `value`
 | :-- | :--- | :------ | :---------- |
 | `renderFps` | Number | `10` | Max UI refresh rate (frames per second) |
 | `pollIntervalMs` | Number | `2000` | Fallback file poll interval in milliseconds |
+| `analysisWarnMs` | Number | `1000` | Enter degraded mode if one parse takes longer than this |
+| `degradedRenderFps` | Number | `2` | UI refresh rate while degraded mode is active |
 
 #### Project (`project`)
 

@@ -4,7 +4,7 @@
 | 项 | 内容 |
 | :--- | :--- |
 | **项目名称** | gemini-hud |
-| **Spec 版本** | 0.1.0（终端伴侣监控器） |
+| **Spec 版本** | 0.5.0（终端伴侣监控器） |
 | **当前状态** | 已定稿 |
 | **核心目标** | 通过监听原生 Session 文件，实现对 Gemini CLI 的零侵入状态监控 |
 
@@ -20,6 +20,23 @@ graph LR
 ```
 
 ## 2. 项目架构
+
+```mermaid
+flowchart TD
+    CLI["Gemini CLI"] -->|写入| Session["session-*.json"]
+    Session --> Detector["project-detector.js"]
+    Detector --> Watcher["session-watcher.js"]
+    Watcher --> Parser["session-parser.js"]
+    Parser --> Orchestrator["gemini-hud.js"]
+    Orchestrator --> Renderer["renderer.js"]
+    Renderer --> Layouts["layouts.js"]
+    Renderer --> Themes["themes.js"]
+    Orchestrator --> SystemInfo["system-info.js"]
+    Orchestrator --> History["history-reader.js"]
+    Orchestrator --> Notifier["notifier.js"]
+    Orchestrator --> Exporter["exporter.js"]
+    Renderer --> Terminal["终端 HUD 面板"]
+```
 
 ```
 gemini-hud/

@@ -4,7 +4,7 @@
 | Item | Content |
 | :--- | :--- |
 | **Project Name** | gemini-hud |
-| **Spec Version** | 0.3.0 |
+| **Spec Version** | 0.5.0 |
 | **Status** | Finalized |
 | **Core Goal** | Zero-intrusion Gemini CLI session monitoring via native session file watching |
 
@@ -22,6 +22,23 @@ graph LR
 ```
 
 ## 2. Project Architecture
+
+```mermaid
+flowchart TD
+    CLI["Gemini CLI"] -->|write| Session["session-*.json"]
+    Session --> Detector["project-detector.js"]
+    Detector --> Watcher["session-watcher.js"]
+    Watcher --> Parser["session-parser.js"]
+    Parser --> Orchestrator["gemini-hud.js"]
+    Orchestrator --> Renderer["renderer.js"]
+    Renderer --> Layouts["layouts.js"]
+    Renderer --> Themes["themes.js"]
+    Orchestrator --> SystemInfo["system-info.js"]
+    Orchestrator --> History["history-reader.js"]
+    Orchestrator --> Notifier["notifier.js"]
+    Orchestrator --> Exporter["exporter.js"]
+    Renderer --> Terminal["Terminal HUD"]
+```
 
 ```
 gemini-hud/

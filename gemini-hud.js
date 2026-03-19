@@ -23,9 +23,9 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 
-import { detectActiveSession, getProjectDisplayName } from './lib/project-detector.js';
+import { detectActiveSession } from './lib/project-detector.js';
 import { watchSession } from './lib/session-watcher.js';
-import { parseSessionSync, formatDuration } from './lib/session-parser.js';
+import { parseSessionSync } from './lib/session-parser.js';
 import { initRenderer, cleanupRenderer, render } from './lib/renderer.js';
 import { startGitPolling, stopGitPolling, startCpuPolling, stopCpuPolling } from './lib/system-info.js';
 import { readHistoryStats } from './lib/history-reader.js';
@@ -119,6 +119,10 @@ const DEFAULT_CONFIG = {
   performance: {
     renderFps: 10,
     pollIntervalMs: 2000,
+    // When parsing a session update takes longer than this, we enter degraded mode.
+    analysisWarnMs: 1000,
+    // Render FPS while degraded mode is active.
+    degradedRenderFps: 2,
   },
   project: {
     name: null,
@@ -183,6 +187,11 @@ if (exportArg && !VALID_EXPORTS.includes(exportArg)) {
 
 const RENDER_INTERVAL_MS = Math.max(50, Math.round(1000 / (CONFIG.performance?.renderFps ?? 10)));
 const POLL_INTERVAL_MS = CONFIG.performance?.pollIntervalMs ?? 2000;
+const ANALYSIS_WARN_MS = Math.max(100, CONFIG.performance?.analysisWarnMs ?? 1000);
+const DEGRADED_RENDER_INTERVAL_MS = Math.max(
+  100,
+  Math.round(1000 / Math.max(1, CONFIG.performance?.degradedRenderFps ?? 2)),
+);
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -192,6 +201,22 @@ let currentMetrics = null;
 let previousStatus = null;   // for change-detection in notifier
 let watcher = null;
 let rescanTimer = null;
+let fastParseStreak = 0;
+let renderTimer = null;
+let currentRenderIntervalMs = RENDER_INTERVAL_MS;
+
+const performanceState = {
+  degraded: false,
+  parseMs: 0,
+  thresholdMs: ANALYSIS_WARN_MS,
+  reason: '',
+  unreliable: false,
+};
+
+const restartRenderLoop = () => {
+  if (renderTimer) clearInterval(renderTimer);
+  renderTimer = runRenderLoop(currentRenderIntervalMs);
+};
 
 // ── Session management ────────────────────────────────────────────────────────
 
@@ -201,7 +226,36 @@ let rescanTimer = null;
  * Also triggers notifications on status transitions.
  */
 const onSessionUpdate = (_filePath, rawContent) => {
+  const wasDegraded = performanceState.degraded;
+
+  const parseStart = Date.now();
   const metrics = parseSessionSync(rawContent);
+  const parseMs = Date.now() - parseStart;
+  performanceState.parseMs = parseMs;
+
+  if (parseMs > ANALYSIS_WARN_MS) {
+    fastParseStreak = 0;
+    performanceState.degraded = true;
+    performanceState.unreliable = true;
+    performanceState.reason = `Parsing took ${parseMs}ms (> ${ANALYSIS_WARN_MS}ms). Session may be too large.`;
+  } else {
+    // Avoid mode flapping: require 3 consecutive fast parses to recover.
+    fastParseStreak += 1;
+    if (performanceState.degraded && fastParseStreak >= 3) {
+      performanceState.degraded = false;
+      performanceState.unreliable = false;
+      performanceState.reason = '';
+    }
+  }
+
+  // Dynamically lower render FPS while degraded, restore when healthy.
+  if (performanceState.degraded !== wasDegraded) {
+    currentRenderIntervalMs = performanceState.degraded
+      ? DEGRADED_RENDER_INTERVAL_MS
+      : RENDER_INTERVAL_MS;
+    restartRenderLoop();
+  }
+
   if (!metrics) return;
 
   // Detect processing → idle transition (Gemini just finished responding)
@@ -224,6 +278,12 @@ const switchToSession = (sessionFile, projectName) => {
   currentSessionFile = sessionFile;
   currentProjectName = projectName;
   currentMetrics = null;
+  fastParseStreak = 0;
+  performanceState.degraded = false;
+  performanceState.unreliable = false;
+  performanceState.reason = '';
+  performanceState.parseMs = 0;
+  currentRenderIntervalMs = RENDER_INTERVAL_MS;
 
   if (watcher) {
     watcher.switchFile(sessionFile);
@@ -262,7 +322,7 @@ const loadHistory = async () => {
 
 // ── Render loop ───────────────────────────────────────────────────────────────
 
-const runRenderLoop = () => {
+const runRenderLoop = (intervalMs = RENDER_INTERVAL_MS) => {
   const renderFrame = () => {
     render(currentMetrics, {
       projectName: currentProjectName,
@@ -270,6 +330,7 @@ const runRenderLoop = () => {
       waiting: !currentSessionFile,
       config: CONFIG,
       historyStats,
+      performanceState,
     });
   };
 
@@ -277,7 +338,7 @@ const runRenderLoop = () => {
   renderFrame();
 
   // Periodic re-render (for live clocks, processing timers, etc.)
-  return setInterval(renderFrame, RENDER_INTERVAL_MS);
+  return setInterval(renderFrame, intervalMs);
 };
 
 // ── Cleanup ───────────────────────────────────────────────────────────────────
@@ -285,6 +346,7 @@ const runRenderLoop = () => {
 const cleanup = () => {
   if (watcher) watcher.stop();
   if (rescanTimer) clearInterval(rescanTimer);
+  if (renderTimer) clearInterval(renderTimer);
   stopGitPolling();
   stopCpuPolling();
   cleanupRenderer();
@@ -338,7 +400,7 @@ const main = async () => {
     }, 10_000);
   }
 
-  runRenderLoop();
+  renderTimer = runRenderLoop(currentRenderIntervalMs);
 };
 
 main().catch((err) => {

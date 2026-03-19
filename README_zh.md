@@ -1,4 +1,4 @@
-# gemini-hud (v0.3.0)
+# gemini-hud (v0.5.0)
 
 [English](README.md) | [中文](README_zh.md)
 
@@ -7,6 +7,13 @@
 ## 工作原理
 
 Gemini CLI 在你工作时会自动将会话历史写入 `~/.gemini/tmp/<项目名>/chats/session-*.json`。gemini-hud 只是**监听那个文件**，然后在你的终端中渲染数据。没有注入，没有进程包裹，没有钩子。
+
+```mermaid
+flowchart LR
+    A["Gemini CLI"] -->|"写入会话 JSON"| B["~/.gemini/tmp/<项目>/chats/session-*.json"]
+    B -->|"fs.watch + 轮询兜底"| C["gemini-hud"]
+    C -->|"ANSI 面板渲染"| D["分屏终端"]
+```
 
 ```
 ┌─ gemini-hud ────────────────── [default] 14:32:05 ─┐
@@ -139,7 +146,9 @@ cp .gemini-hudrc.example .gemini-hudrc
   "colors": {},
   "performance": {
     "renderFps": 10,
-    "pollIntervalMs": 2000
+    "pollIntervalMs": 2000,
+    "analysisWarnMs": 1000,
+    "degradedRenderFps": 2
   },
   "project": {
     "name": null
@@ -177,6 +186,8 @@ cp .gemini-hudrc.example .gemini-hudrc
 | :--- | :--- | :----- | :--- |
 | `renderFps` | 数字 | `10` | 最大 UI 刷新率（帧/秒） |
 | `pollIntervalMs` | 数字 | `2000` | 兜底文件轮询间隔（毫秒） |
+| `analysisWarnMs` | 数字 | `1000` | 单次解析超过该阈值时进入降级模式 |
+| `degradedRenderFps` | 数字 | `2` | 降级模式下的 UI 刷新率 |
 
 #### 项目配置（`project`）
 

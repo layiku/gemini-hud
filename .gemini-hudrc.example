@@ -15,7 +15,9 @@
   "colors": {},
   "performance": {
     "renderFps": 10,
-    "pollIntervalMs": 2000
+    "pollIntervalMs": 2000,
+    "analysisWarnMs": 1000,
+    "degradedRenderFps": 2
   },
   "project": {
     "name": null
