@@ -38,7 +38,7 @@ graph TD
 
 ### 3.1 注入机制
 必须在 Worker 线程 (`gemini-hud-loader.js`) 中实现 Node.js `load` 钩子，以拦截匹配 `@google/gemini-cli-core` 的模块。
-- **代码转换**：向 `Session` 类构造函数注入 `globalThis.__HUD_REGISTER_SESSION__(this)`。
+- **代码转换**：使用抽象语法树 (AST) 解析 (`acorn`, `astring`) 确定性地定位类构造函数并注入 `globalThis.__HUD_REGISTER_SESSION__(this)`，使程序完全免疫底层代码的压缩混淆或格式更改。
 - **内存安全**：`gemini-hud-preload.js` 运行在主线程，接收实例并使用 `WeakRef` 和 `FinalizationRegistry` 确保监控不会阻碍垃圾回收。
 
 ### 3.2 I/O 优化与 IPC 通信

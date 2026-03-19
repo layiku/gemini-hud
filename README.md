@@ -6,7 +6,7 @@ A high-performance terminal status bar (HUD) for Gemini CLI. It leverages **ESM 
 
 ## Core Features
 
-- **Runtime Injection Monitoring**: Hooks into `gemini-cli` memory via Node.js Loaders for ground-truth data (Tokens, Model ID, Status).
+- **AST-Based Runtime Injection**: Uses Abstract Syntax Tree (AST) parsing via Node.js Loaders to safely inject telemetry hooks into `gemini-cli` memory, guaranteeing 100% accurate data (Tokens, Model ID, Status) regardless of upstream code minification.
 - **Multi-Session Aggregation**: Automatically aggregates resource usage across all concurrent Agent sessions. Supports `Multi Gemini Model` detection.
 - **Smart Plan Capture**: Automatically extracts task lists from AI Markdown responses (`## Plan`).
 - **Echo Cancellation**: Advanced filtering prevents your terminal input from interfering with HUD status parsing.

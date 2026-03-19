@@ -38,7 +38,7 @@ graph TD
 
 ### 3.1 Injection Mechanism
 Must implement the Node.js `load` hook in a worker thread (`gemini-hud-loader.js`) to intercept modules matching `@google/gemini-cli-core`.
-- **Transformation**: Injects `globalThis.__HUD_REGISTER_SESSION__(this)` into the `Session` class constructor.
+- **Transformation**: Uses Abstract Syntax Tree (AST) parsing (`acorn`, `astring`) to deterministically locate Class constructors and inject `globalThis.__HUD_REGISTER_SESSION__(this)`, making it completely immune to source minification or formatting changes.
 - **Memory Safety**: `gemini-hud-preload.js` runs in the main thread, receiving the instance and using `WeakRef` and `FinalizationRegistry` to ensure session monitoring does not prevent garbage collection.
 
 ### 3.2 I/O Optimization & IPC
