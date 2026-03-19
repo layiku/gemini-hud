@@ -265,7 +265,7 @@ const parseAiPlan = (text) => {
     }
   }
 
-  const doneMarkers = (text.match(/✅|✔|Done|completed|Success/gi) || []).length;
+  const doneMarkers = (text.match(/✅|✔|✓|Done|completed|Success/gi) || []).length;
   const stepCompletedMatch = text.match(/Step (\d+) completed/i);
   if (stepCompletedMatch) {
     STATE.target.done = Math.max(STATE.target.done, parseInt(stepCompletedMatch[1], 10));
