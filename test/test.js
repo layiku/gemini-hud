@@ -1,173 +1,239 @@
 /**
- * gemini-hud Core Logic Test Script (v0.0.5 Evolution)
- * Verified against the latest ESM Loader, Multi-session architecture, and zero-latency IPC.
+ * gemini-hud Core Logic Test Script (v0.1.0)
+ * Tests session-parser.js — the heart of the new file-watching architecture.
+ *
+ * Run: node test/test.js
+ * No additional dependencies required (uses Node.js built-in assert).
  */
 
 import assert from 'assert';
-import path from 'path';
-import os from 'os';
+import { parseSessionSync, formatTokens, formatDuration } from '../lib/session-parser.js';
 
-// ======================== Mock Implementation (Mirroring gemini_hud.js) ========================
+// ── Helpers ────────────────────────────────────────────────────────────────
 
-let STATE = {
-  model: 'unknown',
-  tokenUsed: 0,
-  status: 'idle',
-  target: { total: 0, done: 0, list: [] },
-  sessionCount: 0
-};
-
-let CACHE = {
-  planMode: false,
-  echoQueue: []
-};
-
-function resetState() {
-  STATE = { model: 'unknown', tokenUsed: 0, status: 'idle', target: { total: 0, done: 0, list: [] }, sessionCount: 0 };
-  CACHE = { planMode: false, echoQueue: [] };
-}
+const now = new Date().toISOString();
+const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+const elevenMinAgo = new Date(Date.now() - 11 * 60 * 1000).toISOString();
 
 /**
- * Mock Multi-session Aggregation
+ * Build a minimal session JSON string for testing.
  */
-function aggregate(sessionList) {
-  if (!Array.isArray(sessionList) || sessionList.length === 0) {
-    STATE.sessionCount = 0;
-    return;
-  }
-
-  let totalInput = 0;
-  let totalOutput = 0;
-  let isAnyRunning = false;
-  const modelSet = new Set();
-
-  for (const s of sessionList) {
-    totalInput += s.tokens?.input || 0;
-    totalOutput += s.tokens?.output || 0;
-    if (s.model) modelSet.add(s.model);
-    if (s.isProcessing) isAnyRunning = true;
-  }
-
-  STATE.tokenUsed = totalInput + totalOutput;
-  STATE.status = isAnyRunning ? 'running' : 'idle';
-  STATE.sessionCount = sessionList.length;
-
-  if (modelSet.size > 1) STATE.model = "Multi Gemini Model";
-  else if (modelSet.size === 1) STATE.model = Array.from(modelSet)[0];
+function makeSession({ messages = [], startTime = now, lastUpdated = now } = {}) {
+  return JSON.stringify({
+    sessionId: 'test-session-id',
+    projectHash: 'abc123',
+    startTime,
+    lastUpdated,
+    kind: 'main',
+    messages,
+  });
 }
 
-/**
- * Mock Intelligent Plan Capture (with Start/End logic)
- */
-function parseAiPlan(text) {
-  // Only parse when AI is running (State Lock)
-  if (STATE.status !== 'running') {
-    CACHE.planMode = false;
-    return;
-  }
-
-  const lines = text.split('\n');
-  for (const line of lines) {
-    const cleanLine = line.trim();
-    if (!cleanLine) continue;
-
-    // Trigger Start
-    if (cleanLine.match(/^(#+)\s+.*Plan/i) || cleanLine.match(/^(Plan|Steps|Tasks):/i)) {
-      CACHE.planMode = true;
-      STATE.target.list = [];
-      STATE.target.total = 0;
-      STATE.target.done = 0;
-      continue;
-    }
-
-    if (CACHE.planMode) {
-      const stepMatch = cleanLine.match(/^(\d+)\.\s+(.+)/);
-      if (stepMatch) {
-        if (!STATE.target.list.includes(stepMatch[2])) {
-          STATE.target.list.push(stepMatch[2]);
-          STATE.target.total = STATE.target.list.length;
-        }
-      } else {
-        // Trigger End: New Header OR Long Body Text
-        if (cleanLine.startsWith('#') || (STATE.target.total > 0 && cleanLine.length > 20)) {
-          CACHE.planMode = false;
-        }
-      }
-    }
-  }
+function userMsg(text, timestamp = now) {
+  return { id: 'u1', timestamp, type: 'user', content: [{ text }] };
 }
 
-// ======================== Test Cases ========================
-
-function runTests() {
-  let passed = 0;
-  let failed = 0;
-
-  const test = (desc, fn) => {
-    try {
-      resetState();
-      fn();
-      console.log(`✅ ${desc}: Passed`);
-      passed++;
-    } catch (err) {
-      console.log(`❌ ${desc}: Failed (${err.message})`);
-      failed++;
-    }
+function geminiMsg({ model = 'gemini-flash', tokens = {}, toolCalls = [], timestamp = now } = {}) {
+  return {
+    id: 'g1',
+    timestamp,
+    type: 'gemini',
+    content: 'Some response',
+    tokens: { input: 0, output: 0, cached: 0, thoughts: 0, total: 0, ...tokens },
+    model,
+    toolCalls,
   };
-
-  // Test 1: Multi-session Token Aggregation
-  test('Token Aggregation & Model Conflict', () => {
-    const sessions = [
-      { model: 'gemini-pro', tokens: { input: 100, output: 50 }, isProcessing: false },
-      { model: 'gemini-flash', tokens: { input: 200, output: 100 }, isProcessing: true }
-    ];
-    aggregate(sessions);
-    assert.strictEqual(STATE.tokenUsed, 450);
-    assert.strictEqual(STATE.status, 'running');
-    assert.strictEqual(STATE.model, 'Multi Gemini Model');
-  });
-
-  // Test 2: Plan Capture Start and Continuous Grabbing
-  test('Plan Capture Start & List Grabbing', () => {
-    STATE.status = 'running';
-    parseAiPlan('## Plan\n1. Task A\n2. Task B');
-    assert.strictEqual(CACHE.planMode, true);
-    assert.strictEqual(STATE.target.total, 2);
-  });
-
-  // Test 3: Plan Capture Termination (by New Header)
-  test('Plan Capture Termination by New Header', () => {
-    STATE.status = 'running';
-    parseAiPlan('## Plan\n1. Task A');
-    assert.strictEqual(CACHE.planMode, true);
-    
-    parseAiPlan('## Next Step'); // Should terminate
-    assert.strictEqual(CACHE.planMode, false);
-    assert.strictEqual(STATE.target.total, 1); // Progress should be preserved
-  });
-
-  // Test 4: Plan Capture Termination (by Body Text)
-  test('Plan Capture Termination by Body Text', () => {
-    STATE.status = 'running';
-    parseAiPlan('Plan:\n1. Task A');
-    assert.strictEqual(CACHE.planMode, true);
-    
-    parseAiPlan('This is a summary of the plan that is very long.'); // Should terminate
-    assert.strictEqual(CACHE.planMode, false);
-  });
-
-  // Test 5: State Lock (Ignore capture when Idle)
-  test('State Lock (Ignore lists when idle)', () => {
-    STATE.status = 'idle';
-    parseAiPlan('## Plan\n1. Task A'); // Should be ignored
-    assert.strictEqual(CACHE.planMode, false);
-    assert.strictEqual(STATE.target.total, 0);
-  });
-
-  // Test Summary
-  console.log('\n======================= Test Results ========================');
-  console.log(`Total: ${passed + failed} | Passed: ${passed} | Failed: ${failed}`);
-  if (failed === 0) console.log('🎉 System Logic is Solid!');
 }
 
-runTests();
+// ── Test runner ────────────────────────────────────────────────────────────
+
+let passed = 0;
+let failed = 0;
+
+function test(desc, fn) {
+  try {
+    fn();
+    console.log(`✅ ${desc}`);
+    passed++;
+  } catch (err) {
+    console.log(`❌ ${desc}: ${err.message}`);
+    failed++;
+  }
+}
+
+// ── Session parser tests ───────────────────────────────────────────────────
+
+test('Returns null for invalid JSON', () => {
+  assert.strictEqual(parseSessionSync('not json'), null);
+});
+
+test('Returns null for missing messages array', () => {
+  assert.strictEqual(parseSessionSync('{"sessionId":"x"}'), null);
+});
+
+test('Parses empty session', () => {
+  const m = parseSessionSync(makeSession());
+  assert.ok(m);
+  assert.strictEqual(m.messageCount, 0);
+  assert.strictEqual(m.turnCount, 0);
+  assert.strictEqual(m.model, 'unknown');
+  assert.strictEqual(m.status, 'unknown');
+  assert.strictEqual(m.tokens.total, 0);
+});
+
+test('Accumulates tokens across multiple turns', () => {
+  const session = makeSession({
+    messages: [
+      userMsg('hello'),
+      geminiMsg({ tokens: { input: 100, output: 20, cached: 0, thoughts: 5, total: 125 } }),
+      userMsg('world'),
+      geminiMsg({ tokens: { input: 200, output: 30, cached: 50, thoughts: 0, total: 280 } }),
+    ],
+  });
+  const m = parseSessionSync(session);
+  assert.strictEqual(m.tokens.input, 300);
+  assert.strictEqual(m.tokens.output, 50);
+  assert.strictEqual(m.tokens.cached, 50);
+  assert.strictEqual(m.tokens.thoughts, 5);
+  assert.strictEqual(m.tokens.total, 405);
+  assert.strictEqual(m.turnCount, 2);
+  assert.strictEqual(m.messageCount, 4);
+});
+
+test('Detects single model', () => {
+  const session = makeSession({
+    messages: [
+      userMsg('hi'),
+      geminiMsg({ model: 'gemini-3-flash-preview' }),
+      userMsg('again'),
+      geminiMsg({ model: 'gemini-3-flash-preview' }),
+    ],
+  });
+  const m = parseSessionSync(session);
+  assert.strictEqual(m.model, 'gemini-3-flash-preview');
+  assert.strictEqual(m.models.size, 1);
+});
+
+test('Detects multiple models (Multi-model)', () => {
+  const session = makeSession({
+    messages: [
+      userMsg('hi'),
+      geminiMsg({ model: 'gemini-flash' }),
+      userMsg('again'),
+      geminiMsg({ model: 'gemini-pro' }),
+    ],
+  });
+  const m = parseSessionSync(session);
+  assert.strictEqual(m.model, 'Multi-model');
+  assert.strictEqual(m.models.size, 2);
+});
+
+test('Status is idle when last message is gemini type', () => {
+  const session = makeSession({
+    messages: [
+      userMsg('do something'),
+      geminiMsg({ tokens: { total: 10, input: 10, output: 0, cached: 0, thoughts: 0 } }),
+    ],
+  });
+  const m = parseSessionSync(session);
+  assert.strictEqual(m.status, 'idle');
+});
+
+test('Status is processing when last message is user (recent)', () => {
+  const session = makeSession({
+    messages: [
+      geminiMsg(),
+      userMsg('do something now', fiveMinAgo),
+    ],
+  });
+  const m = parseSessionSync(session);
+  assert.strictEqual(m.status, 'processing');
+  assert.ok(m.processingForMs > 0);
+});
+
+test('Status is unknown when last user message is stale (> 10 min)', () => {
+  const session = makeSession({
+    messages: [
+      geminiMsg(),
+      userMsg('do something old', elevenMinAgo),
+    ],
+  });
+  const m = parseSessionSync(session);
+  assert.strictEqual(m.status, 'unknown');
+});
+
+test('Counts tool calls correctly', () => {
+  const session = makeSession({
+    messages: [
+      userMsg('read some files'),
+      geminiMsg({
+        toolCalls: [
+          { id: 't1', name: 'read_file', args: {}, status: 'success', timestamp: now },
+          { id: 't2', name: 'read_file', args: {}, status: 'success', timestamp: now },
+          { id: 't3', name: 'write_file', args: {}, status: 'success', timestamp: now },
+        ],
+      }),
+    ],
+  });
+  const m = parseSessionSync(session);
+  assert.strictEqual(m.tools.get('read_file'), 2);
+  assert.strictEqual(m.tools.get('write_file'), 1);
+  assert.strictEqual(m.tools.size, 2);
+});
+
+test('Captures last user message text', () => {
+  const session = makeSession({
+    messages: [
+      userMsg('first message'),
+      geminiMsg(),
+      userMsg('second message'),
+    ],
+  });
+  const m = parseSessionSync(session);
+  assert.strictEqual(m.lastUserMessage, 'second message');
+});
+
+test('Truncates very long last user message to 120 chars', () => {
+  const longText = 'x'.repeat(200);
+  const session = makeSession({ messages: [userMsg(longText)] });
+  const m = parseSessionSync(session);
+  assert.strictEqual(m.lastUserMessage.length, 120);
+});
+
+// ── formatTokens tests ─────────────────────────────────────────────────────
+
+test('formatTokens: under 1k', () => {
+  assert.strictEqual(formatTokens(500), '500');
+});
+
+test('formatTokens: thousands', () => {
+  assert.strictEqual(formatTokens(45231), '45.2k');
+});
+
+test('formatTokens: millions', () => {
+  assert.strictEqual(formatTokens(1_500_000), '1.5M');
+});
+
+// ── formatDuration tests ───────────────────────────────────────────────────
+
+test('formatDuration: seconds only', () => {
+  assert.strictEqual(formatDuration(45_000), '45s');
+});
+
+test('formatDuration: minutes and seconds', () => {
+  assert.strictEqual(formatDuration(125_000), '2m 5s');
+});
+
+test('formatDuration: hours and minutes', () => {
+  assert.strictEqual(formatDuration(3_661_000), '1h 1m');
+});
+
+// ── Summary ────────────────────────────────────────────────────────────────
+
+console.log('\n═══════════════════════════ Test Results ═══════════════════════════');
+console.log(`Total: ${passed + failed}  │  ✅ Passed: ${passed}  │  ❌ Failed: ${failed}`);
+if (failed === 0) {
+  console.log('🎉 All tests passed!');
+} else {
+  process.exit(1);
+}

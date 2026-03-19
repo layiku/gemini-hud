@@ -1,150 +1,244 @@
-# gemini-hud (v0.0.5)
+# gemini-hud (v0.3.0)
 
-[中文](README_zh.md) | [English](README.md)
+[English](README.md) | [中文](README_zh.md)
 
-一款为 Gemini CLI 设计的高性能终端状态栏（HUD）。它利用 **ESM Loader 注入技术**，直接从内存中提取 100% 准确的 Token 用量、模型型号以及多会话状态，实现真正实时的可视化监控。
+一款零侵入的 Gemini CLI 终端伴侣监控工具。在分屏中运行，即可实时查看 Token 使用量、模型信息、工具调用记录和会话统计 —— 完全不修改、不包裹 gemini-cli。
 
-## 核心特性
+## 工作原理
 
-- **基于 AST 的运行时注入**：使用抽象语法树 (AST) 解析技术通过 Node.js Loader 动态钩入 `gemini-cli` 内存，即使底层代码被压缩混淆，也能稳定获取最真实的数据（Token、模型 ID、运行状态）。
-- **多会话聚合**：自动累加所有并发 Agent 会话的资源消耗。支持 `Multi Gemini Model` 冲突检测。
-- **全自动计划捕获**：自动从 AI 的 Markdown 回复中提取任务列表（`## Plan`）。
-- **回显消除机制**：先进的过滤算法，确保你的终端输入不会干扰 HUD 的状态解析。
-- **吸附式布局**：固定底部的状态栏，采用“吸附”技术消除启动时的空白间隙，使输出紧贴 HUD。
-- **极致资源优化**：内置“脏检查”机制并采用命名管道 (Named Pipes) 实现零延迟 IPC 通信，彻底消除磁盘 I/O。使用 `WeakRef` 确保长时间运行零内存泄漏。
-- **伪终端隔离**：独立的 PTY 分区，确保 CLI 交互顺滑、响应及时。
+Gemini CLI 在你工作时会自动将会话历史写入 `~/.gemini/tmp/<项目名>/chats/session-*.json`。gemini-hud 只是**监听那个文件**，然后在你的终端中渲染数据。没有注入，没有进程包裹，没有钩子。
 
-## 运行要求
+```
+┌─ gemini-hud ────────────────── [default] 14:32:05 ─┐
+│ Session: 25m 3s  ⎇ main                             │
+│ Messages: 42  Turns: 18  ● 空闲                     │
+│ Model: gemini-3-flash-preview                        │
+│ Tokens: 45,231 总计  (↓38k 输入 / ↑7k 输出 / ⚡12k) │
+│ Tools: write×12  read×8  shell×5                    │
+│ Last: "Refactor auth module and update tests"       │
+└─────────────────────────────────────────────────────┘
+```
 
-1. **Node.js 20.0.0+** (必须，以支持最新的 ESM Loader API)
-2. 已安装并配置标准版 `gemini-cli`。
-3. 支持 ANSI 转义序列的终端（如 Windows Terminal, iTerm2 等）。
+## 环境要求
+
+- **Node.js 18.0.0+**
+- **Gemini CLI**（任意版本，无需特殊构建）
+- 支持 ANSI 转义序列的终端（Windows Terminal、iTerm2 等）
 
 ## 安装
 
 ```bash
-# 安装必要依赖
-npm install pty.js ansi-escapes strip-ansi
+git clone https://github.com/your-username/gemini-hud
+cd gemini-hud
+npm install
+```
+
+### 全局安装（可选）
+
+```bash
+npm install -g .
+# 之后可在任意目录直接运行：
+gemini-hud
 ```
 
 ## 快速开始
 
-要激活高精度监控，你必须通过 `NODE_OPTIONS` 环境变量注入 HUD 钩子。
+1. 在运行 `gemini` 的旁边，**新开一个终端分屏**。
+2. 进入你的项目目录（即运行 `gemini` 的那个目录）。
+3. 运行：
 
-### Windows (PowerShell)
-```powershell
-$env:NODE_OPTIONS = "--import file:///C:/路径/到/gemini-hud-preload.js"
+```bash
+gemini-hud
+# 或不安装全局命令时：
 node gemini-hud.js
 ```
 
-### Linux / macOS
-```bash
-NODE_OPTIONS="--import ./gemini-hud-preload.js" node gemini-hud.js
+gemini-hud 会自动检测你的活跃会话，并立即开始展示监控数据。
+
+## 命令行参数
+
+```
+gemini-hud [选项]
+
+选项：
+  --project <名称>    监控指定项目
+  --layout  <名称>    布局模板：minimal | default | dev
+  --theme   <名称>    颜色主题：default | dark | minimal | ocean | rose
+  --notify            Gemini 回复时响铃并发送系统通知
+  --export  <格式>    导出当前 Session 指标到文件后退出（json | csv）
+  --version           显示版本号
+  --help              显示帮助
 ```
 
-## 配置指南
+### 使用示例
 
-gemini-hud 支持多层级配置覆盖，加载优先级如下：
-1. **项目级**：当前工作目录下的 `.gemini-hudrc`。
-2. **全局级**：用户家目录下的 `~/.gemini-hudrc`。
-3. **内置默认**：程序内部硬编码的初始设置。
+```bash
+# 开发者布局 + 海洋主题 + 通知
+gemini-hud --layout dev --theme ocean --notify
 
-> **💡 重要提醒**：若要自定义配置，你需要将项目中的 `.gemini-hudrc.example` 文件重命名为 `.gemini-hudrc`（放在当前目录或家目录均可）。如果程序未找到任何配置文件，将自动按照内置代码的默认值运行。
+# 小分屏下的极简视图
+gemini-hud --layout minimal --theme dark
 
-### 完整配置示例 (`.gemini-hudrc`)
+# 导出当前 Session 为 JSON（不启动 UI）
+gemini-hud --export json
+
+# 监控指定项目
+gemini-hud --project my-app
+```
+
+## 布局模板
+
+| 布局 | 行数 | 显示内容 |
+| :--- | :--- | :------- |
+| `minimal` | 2 | 状态、模型、总 Token 数 —— 适合小分屏 |
+| `default` | 5 | 完整信息：时长、消息数、模型、Token 明细、工具 + 最后消息 |
+| `dev` | 8 | default 的全部内容 + 完整工具列表、Git 分支、CPU 占用率、**跨 Session 历史累计** |
+
+## 颜色主题
+
+| 主题 | 强调色 |
+| :--- | :----- |
+| `default` | 蓝色 |
+| `dark` | 青色（高对比度） |
+| `minimal` | 单色（状态点除外无颜色） |
+| `ocean` | 海蓝色 |
+| `rose` | 玫瑰色 / 品红 |
+
+## 配置
+
+配置项按以下优先级依次解析：
+
+1. **命令行参数** —— 最高优先级（如 `--layout dev`）
+2. **项目级**：当前工作目录下的 `.gemini-hudrc`
+3. **全局级**：用户主目录下的 `~/.gemini-hudrc`
+4. **默认值**：内置的默认配置
+
+复制示例文件并自定义：
+
+```bash
+cp .gemini-hudrc.example .gemini-hudrc
+```
+
+### 完整 `.gemini-hudrc` 配置说明
 
 ```json
 {
   "hud": {
-    "rows": 1,
-    "colors": {
-      "idle": "\u001b[32m",
-      "running": "\u001b[34m",
-      "error": "\u001b[31m"
-    },
+    "layout": "default",
+    "theme": "default",
     "show": {
       "model": true,
       "tokens": true,
-      "mcp": true,
-      "target": true,
-      "gitBranch": true,
-      "currentFilePath": true,
+      "tools": true,
+      "lastMessage": true,
       "time": true,
-      "cpuUsage": true
+      "sessionDuration": true
     },
-    "progressBar": {
-      "full": "█",
-      "empty": "░",
-      "length": 30
-    },
-    "pathStyle": "short",
-    "layout": {
-      "template": "default",
-      "customOrder": []
-    }
+    "maxToolsShown": 5
   },
+  "colors": {},
   "performance": {
-    "resizeDebounceMs": 50,
-    "renderFps": 30,
-    "gitUpdateIntervalMs": 5000
+    "renderFps": 10,
+    "pollIntervalMs": 2000
   },
-  "gemini": {
-    "command": "gemini",
-    "autoRestart": true,
-    "restartDelayMs": 5000
+  "project": {
+    "name": null
   }
 }
 ```
 
-### 详细参数参考
+### 参数详解
 
-#### 1. HUD 外观配置 (`hud`)
-| 键名 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `rows` | 数字 | `1` | 为 HUD 预留的终端行数。 |
-| `colors.idle` | 字符串 | `\x1b[32m` | 空闲状态颜色（绿色）。 |
-| `colors.running` | 字符串 | `\x1b[34m` | 运行/思考中状态颜色（蓝色）。 |
-| `colors.error` | 字符串 | `\x1b[31m` | 错误状态颜色（红色）。 |
-| `show.*` | 布尔值 | `true` | 各监控项的显示开关（模型、Token、任务等）。 |
-| `progressBar.full` | 字符串 | `"█"` | 进度条已填充部分的字符。 |
-| `progressBar.empty` | 字符串 | `"░"` | 进度条未填充部分的字符。 |
-| `progressBar.length`| 数字 | `30` | Token/任务进度条的字符长度。 |
-| `pathStyle` | 字符串 | `"short"`| 路径风格：`"short"` (带 `~`) 或 `"full"` (绝对路径)。 |
-| `layout.template` | 字符串 | `"default"`| 布局模板：`default`, `minimal`, `full`, `dev`, `clean`, `custom`。 |
-| `layout.customOrder`| 数组 | `[]` | 当模板为 `"custom"` 时，定义监控项的显示顺序。 |
+#### HUD 显示配置（`hud`）
 
-#### 2. 性能与采集 (`performance`)
-| 键名 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `resizeDebounceMs` | 数字 | `50` | 窗口缩放后重新渲染的防抖延迟。 |
-| `renderFps` | 数字 | `30` | 状态栏每秒最大刷新率。 |
-| `gitUpdateIntervalMs`| 数字 | `5000` | 后台检查 Git 分支变化的频率。 |
+| 参数 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :----- | :--- |
+| `layout` | 字符串 | `"default"` | 布局模板（`minimal` \| `default` \| `dev`） |
+| `theme` | 字符串 | `"default"` | 颜色主题（`default` \| `dark` \| `minimal` \| `ocean` \| `rose`） |
+| `show.model` | 布尔值 | `true` | 显示当前模型名称 |
+| `show.tokens` | 布尔值 | `true` | 显示 Token 用量明细 |
+| `show.tools` | 布尔值 | `true` | 显示工具调用历史 |
+| `show.lastMessage` | 布尔值 | `true` | 显示最后一条用户消息预览 |
+| `show.time` | 布尔值 | `true` | 在标题栏显示当前时间 |
+| `show.sessionDuration` | 布尔值 | `true` | 显示会话持续时长 |
+| `maxToolsShown` | 数字 | `5` | 面板中最多显示的工具数量 |
 
-#### 3. Gemini 核心配置 (`gemini`)
-| 键名 | 类型 | 默认值 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `command` | 字符串 | `"gemini"` | 启动底层 Gemini CLI 的实际命令。 |
-| `autoRestart` | 布尔值 | `true` | 当 Gemini 非正常退出时是否自动重新启动。 |
-| `restartDelayMs` | 数字 | `5000` | 自动重启前的等待延迟。 |
+#### 颜色覆盖（`colors`）
 
-## 高级功能
+可按语义角色单独覆盖颜色。可用的键：`accent`、`label`、`value`、`dim`、`idle`、`processing`、`warn`、`border`。值可以是颜色名称（`cyan`、`green` 等）或原始 ANSI 代码。
 
-### 自动任务追踪
-HUD 会自动“旁听” AI 的回复。当 AI 输出类似以下的计划时：
-```markdown
-## Plan
-1. 修复 Bug A
-2. 测试功能 B
+```json
+{ "colors": { "accent": "magenta", "idle": "bGreen" } }
 ```
-状态栏将自动显示 `🎯 0/2`。随着 AI 输出 `✅` 或 `Step 1 completed`，进度条会实时跳动。
+
+#### 性能配置（`performance`）
+
+| 参数 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :----- | :--- |
+| `renderFps` | 数字 | `10` | 最大 UI 刷新率（帧/秒） |
+| `pollIntervalMs` | 数字 | `2000` | 兜底文件轮询间隔（毫秒） |
+
+#### 项目配置（`project`）
+
+| 参数 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :----- | :--- |
+| `name` | 字符串 | `null` | 默认监控的项目名称（可被 `--project` 参数覆盖） |
+
+## 显示内容说明
+
+| 字段 | 说明 |
+| :--- | :--- |
+| **状态（Status）** | `● 空闲`（绿色）或 `● Processing...`（黄色，处理中） |
+| **Git 分支** | 工作目录的当前 Git 分支（自动检测） |
+| **CPU 占用** | 系统 CPU 使用率 —— 在 `dev` 布局中显示 |
+| **模型（Model）** | 当前使用的模型名称；若使用了多个模型则显示 `Multi-model` |
+| **Token** | 累计总用量及明细：输入 / 输出 / 缓存 / 思考 |
+| **工具（Tools）** | 本会话调用次数最多的前 N 个工具 |
+| **最后消息（Last）** | 最近一条用户消息的预览文本 |
+| **时长（Duration）** | 自会话开始以来的时间 |
+| **历史（History）** | 跨 Session 累计数据（Sessions 数、总 Token、总轮次）—— 仅 `dev` 布局 |
+
+## 数据导出
+
+导出当前 Session 指标到文件并立即退出：
+
+```bash
+gemini-hud --export json   # → gemini-hud-export-20260319-143205.json
+gemini-hud --export csv    # → gemini-hud-export-20260319-143205.csv
+```
+
+CSV 格式采用单行表头 + 单行数据，便于跨多个 Session 追加，方便做趋势分析。
+
+## 通知功能（`--notify`）
+
+启用 `--notify` 后，当 Gemini 完成回复（状态从 `processing` 变为 `idle`）时，gemini-hud 会**响终端铃声**，同时发送系统通知。
+
+| 平台 | 通知方式 |
+| :--- | :------- |
+| macOS | `osascript` —— 原生通知中心 |
+| Linux | `notify-send`（不可用时降级为铃声） |
+| Windows | PowerShell Toast（不可用时降级为铃声） |
+
+## Sub-agent 感知
+
+Gemini CLI 在单个 Session 中可能会启动 sub-agent（实验性功能）。每个 sub-agent 都会写入独立的 Session 文件，其 `kind` 字段值为 `"subagent"`。gemini-hud 始终优先选择**主 Session**（`kind: "main"`），确保监控的是顶层对话，而非临时子任务。
 
 ## 常见问题
 
-### 问：为什么需要 Node 20？
-因为它使用了最新的 ESM Loader Hooks 技术，可以在不修改 `gemini-cli` 源码文件的情况下实现代码注入。该 API 在 Node 20+ 版本中才趋于稳定。
+### 会影响或拖慢 Gemini CLI 吗？
+不会。gemini-hud 是完全被动的观察者，只读取 Gemini CLI 已经在写入的文件，不附加进程、不注入代码、不发送任何数据给 gemini-cli。
 
-### 问：它会拖慢 AI 的运行速度吗？
-不会。钩子在内存中执行“脏检查”，只有当数据真正发生变化（例如生成了新 Token）时，才会通过零延迟的 IPC 命名管道发送数据。没有任何磁盘 I/O 开销，极其轻量。
+### 如果我重新开启一个新的 Gemini 会话怎么办？
+gemini-hud 会自动检测到新的 Session 文件并切换监控目标，检测间隔为每 10 秒一次。
 
-## 许可证
+### 支持同时运行多个 Gemini 会话吗？
+gemini-hud 目前一次只监控一个会话（最近活跃的主 Session）。多会话聚合功能计划在未来版本中支持。
+
+### 面板显示"Waiting for Gemini CLI session..."
+请在同一目录启动 `gemini` 会话，或使用 `--project <名称>` 指定项目，gemini-hud 会在几秒内检测到会话并开始显示数据。
+
+### 不修改配置文件能切换主题吗？
+可以 —— 命令行参数优先级最高：`gemini-hud --theme ocean --layout dev`。
+
+## 开源协议
 MIT License

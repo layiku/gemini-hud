@@ -1,50 +1,33 @@
 {
   "name": "gemini-hud",
-  "version": "0.0.5",
-  "description": "Claude HUD-like status bar for Gemini CLI, providing 100% accurate real-time monitoring via ESM Loader injection.",
-  "main": "gemini_hud.js",
+  "version": "0.3.0",
+  "description": "Zero-intrusion terminal companion monitor for Gemini CLI. Reads native session files to display real-time token usage, model, tool activity, and session stats in a split pane.",
+  "main": "gemini-hud.js",
   "bin": {
-    "gemini-hud": "./gemini_hud.js"
+    "gemini-hud": "./gemini-hud.js"
   },
   "scripts": {
-    "start": "node gemini_hud.js",
-    "pkg": "pkg . --out-path dist/",
+    "start": "node gemini-hud.js",
     "test": "node test/test.js"
   },
   "keywords": [
     "gemini",
+    "gemini-cli",
     "cli",
     "hud",
     "status-bar",
     "terminal",
     "real-time-monitoring",
-    "esm-loader"
+    "companion"
   ],
   "author": "",
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=20.6.0"
+    "node": ">=18.0.0"
   },
   "dependencies": {
-    "acorn": "^8.16.0",
-    "acorn-walk": "^8.3.5",
     "ansi-escapes": "^5.0.0",
-    "astring": "^1.9.0",
-    "node-pty": "^1.0.0",
     "strip-ansi": "^7.1.0"
-  },
-  "devDependencies": {
-    "pkg": "^5.8.1"
-  },
-  "pkg": {
-    "targets": [
-      "node18-win-x64",
-      "node18-macos-x64",
-      "node18-linux-x64"
-    ],
-    "outputPath": "dist",
-    "assets": [],
-    "scripts": []
   }
 }

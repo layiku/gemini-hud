@@ -1,150 +1,244 @@
-# gemini-hud (v0.0.5)
+# gemini-hud (v0.3.0)
 
 [English](README.md) | [中文](README_zh.md)
 
-A high-performance terminal status bar (HUD) for Gemini CLI. It leverages **ESM Loader Injection** to provide 100% accurate, real-time monitoring of tokens, models, and multi-session states directly from memory.
+A zero-intrusion terminal companion monitor for Gemini CLI. Run it in a split pane to get a live view of token usage, model, tool activity, and session stats — without modifying or wrapping gemini-cli in any way.
 
-## Core Features
+## How It Works
 
-- **AST-Based Runtime Injection**: Uses Abstract Syntax Tree (AST) parsing via Node.js Loaders to safely inject telemetry hooks into `gemini-cli` memory, guaranteeing 100% accurate data (Tokens, Model ID, Status) regardless of upstream code minification.
-- **Multi-Session Aggregation**: Automatically aggregates resource usage across all concurrent Agent sessions. Supports `Multi Gemini Model` detection.
-- **Smart Plan Capture**: Automatically extracts task lists from AI Markdown responses (`## Plan`).
-- **Echo Cancellation**: Advanced filtering prevents your terminal input from interfering with HUD status parsing.
-- **Adherent Layout**: Fixed bottom status bar with a "glued" CLI output layout that prevents empty gaps on startup.
-- **Resource Optimized**: Features "Dirty Checking" and Zero-Latency IPC via Named Pipes to completely eliminate disk I/O, using `WeakRef` to ensure zero memory leaks.
-- **Pseudo Terminal Isolation**: Independent PTY partition ensures your CLI experience remains smooth and responsive.
+Gemini CLI automatically writes your session history to `~/.gemini/tmp/<project>/chats/session-*.json` as you work. gemini-hud **watches that file** and renders the data in your terminal. No injection, no wrapping, no process hooks.
+
+```
+┌─ gemini-hud ──────────────────── [default] 14:32:05 ─┐
+│ Session: 25m 3s  ⎇ main                               │
+│ Messages: 42  Turns: 18  ● Idle                       │
+│ Model: gemini-3-flash-preview                          │
+│ Tokens: 45,231 total  (↓38k in / ↑7k out / ⚡12k)    │
+│ Tools: write×12  read×8  shell×5                      │
+│ Last: "Refactor auth module and update tests"         │
+└───────────────────────────────────────────────────────┘
+```
 
 ## Requirements
 
-1. **Node.js 20.0.0+** (Required for ESM Loader API support)
-2. Standard `gemini-cli` installed and configured.
-3. A terminal supporting ANSI escape sequences (Windows Terminal, iTerm2, etc.)
+- **Node.js 18.0.0+**
+- **Gemini CLI** (any version — no special build required)
+- A terminal that supports ANSI escape sequences (Windows Terminal, iTerm2, etc.)
 
 ## Installation
 
 ```bash
-# Install dependencies
-npm install pty.js ansi-escapes strip-ansi
+git clone https://github.com/your-username/gemini-hud
+cd gemini-hud
+npm install
+```
+
+### Global Install (optional)
+
+```bash
+npm install -g .
+# Then run from anywhere:
+gemini-hud
 ```
 
 ## Quick Start
 
-To enable high-precision monitoring, you must inject the HUD hook using the `NODE_OPTIONS` environment variable.
+1. Open a **separate terminal pane** alongside your active `gemini` session.
+2. Navigate to your project directory (same directory where you run `gemini`).
+3. Run:
 
-### Windows (PowerShell)
-```powershell
-$env:NODE_OPTIONS = "--import file:///C:/path/to/gemini-hud-preload.js"
+```bash
+gemini-hud
+# or without global install:
 node gemini-hud.js
 ```
 
-### Linux / macOS
-```bash
-NODE_OPTIONS="--import ./gemini-hud-preload.js" node gemini-hud.js
+gemini-hud will auto-detect your active session and begin displaying metrics immediately.
+
+## CLI Reference
+
+```
+gemini-hud [options]
+
+Options:
+  --project <name>    Monitor a specific project by name
+  --layout  <name>    Layout template: minimal | default | dev
+  --theme   <name>    Color theme: default | dark | minimal | ocean | rose
+  --notify            Ring bell + system notification when Gemini responds
+  --export  <format>  Export session metrics to file (json | csv) and exit
+  --version           Print version
+  --help              Show this help
 ```
 
-## Configuration Guide
+### Examples
 
-gemini-hud supports multi-level configuration. It resolves settings in the following order of priority:
-1. **Project-level**: `.gemini-hudrc` in the current working directory.
-2. **Global-level**: `~/.gemini-hudrc` in your user home directory.
-3. **Defaults**: Built-in hardcoded values.
+```bash
+# Developer layout with ocean theme and notifications
+gemini-hud --layout dev --theme ocean --notify
 
-> **💡 Important**: To customize your settings, you must rename the provided `.gemini-hudrc.example` file to `.gemini-hudrc` in your project or home directory. If no config file is found, the program will run using its internal defaults.
+# Compact view in a small pane
+gemini-hud --layout minimal --theme dark
 
-### Full Configuration Example (`.gemini-hudrc`)
+# Export current session to JSON (no UI launched)
+gemini-hud --export json
+
+# Monitor a specific project
+gemini-hud --project my-app
+```
+
+## Layouts
+
+| Layout | Rows | What's shown |
+| :----- | :--- | :----------- |
+| `minimal` | 2 | Session status, model, total tokens — ideal for small panes |
+| `default` | 5 | Full info: duration, messages, model, token breakdown, top tools + last message |
+| `dev` | 8 | Everything in default, plus: full tool list, git branch, CPU bar, **cross-session history totals** |
+
+## Themes
+
+| Theme | Accent color |
+| :---- | :----------- |
+| `default` | Blue |
+| `dark` | Cyan (high-contrast) |
+| `minimal` | Monochrome (no color except status dots) |
+| `ocean` | Teal / sky-blue |
+| `rose` | Magenta / pink |
+
+## Configuration
+
+Settings are resolved in priority order:
+
+1. **CLI flags** — highest priority (e.g. `--layout dev`)
+2. **Project-level** — `.gemini-hudrc` in the current working directory
+3. **Global-level** — `~/.gemini-hudrc` in your home directory
+4. **Defaults** — built-in values
+
+Copy the example and customize:
+
+```bash
+cp .gemini-hudrc.example .gemini-hudrc
+```
+
+### Full `.gemini-hudrc` Reference
 
 ```json
 {
   "hud": {
-    "rows": 1,
-    "colors": {
-      "idle": "\u001b[32m",
-      "running": "\u001b[34m",
-      "error": "\u001b[31m"
-    },
+    "layout": "default",
+    "theme": "default",
     "show": {
       "model": true,
       "tokens": true,
-      "mcp": true,
-      "target": true,
-      "gitBranch": true,
-      "currentFilePath": true,
+      "tools": true,
+      "lastMessage": true,
       "time": true,
-      "cpuUsage": true
+      "sessionDuration": true
     },
-    "progressBar": {
-      "full": "█",
-      "empty": "░",
-      "length": 30
-    },
-    "pathStyle": "short",
-    "layout": {
-      "template": "default",
-      "customOrder": []
-    }
+    "maxToolsShown": 5
   },
+  "colors": {},
   "performance": {
-    "resizeDebounceMs": 50,
-    "renderFps": 30,
-    "gitUpdateIntervalMs": 5000
+    "renderFps": 10,
+    "pollIntervalMs": 2000
   },
-  "gemini": {
-    "command": "gemini",
-    "autoRestart": true,
-    "restartDelayMs": 5000
+  "project": {
+    "name": null
   }
 }
 ```
 
-### Detailed Parameter Reference
+### Parameter Reference
 
-#### 1. HUD Appearance (`hud`)
+#### HUD Display (`hud`)
+
 | Key | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `rows` | Number | `1` | Number of terminal rows reserved for the HUD. |
-| `colors.idle` | String | `\x1b[32m` | Color for idle state (Green). |
-| `colors.running` | String | `\x1b[34m` | Color for processing state (Blue). |
-| `colors.error` | String | `\x1b[31m` | Color for error state (Red). |
-| `show.*` | Boolean | `true` | Toggle specific items (model, tokens, mcp, target, etc.). |
-| `progressBar.full` | String | `"█"` | Character for filled progress. |
-| `progressBar.empty` | String | `"░"` | Character for empty progress. |
-| `progressBar.length`| Number | `30` | Length of the Token/Progress bar. |
-| `pathStyle` | String | `"short"`| `"short"` (with `~`) or `"full"` (absolute). |
-| `layout.template` | String | `"default"`| `default`, `minimal`, `full`, `dev`, `clean`, `custom`. |
-| `layout.customOrder`| Array | `[]` | Order of keys when template is `"custom"`. |
+| :-- | :--- | :------ | :---------- |
+| `layout` | String | `"default"` | Layout template (`minimal` \| `default` \| `dev`) |
+| `theme` | String | `"default"` | Color theme (`default` \| `dark` \| `minimal` \| `ocean` \| `rose`) |
+| `show.model` | Boolean | `true` | Show current model name |
+| `show.tokens` | Boolean | `true` | Show token usage breakdown |
+| `show.tools` | Boolean | `true` | Show tool call history |
+| `show.lastMessage` | Boolean | `true` | Show last user message preview |
+| `show.time` | Boolean | `true` | Show current time in header |
+| `show.sessionDuration` | Boolean | `true` | Show session duration |
+| `maxToolsShown` | Number | `5` | Max tools shown in panel |
 
-#### 2. Performance (`performance`)
-| Key | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `resizeDebounceMs` | Number | `50` | Delay before re-rendering after terminal resize. |
-| `renderFps` | Number | `30` | Maximum UI refresh rate per second. |
-| `gitUpdateIntervalMs`| Number | `5000` | Frequency of Git branch background checks. |
+#### Color Overrides (`colors`)
 
-#### 3. Gemini Core (`gemini`)
-| Key | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `command` | String | `"gemini"` | The actual command used to start Gemini CLI. |
-| `autoRestart` | Boolean | `true` | Whether to relaunch Gemini after a non-zero exit. |
-| `restartDelayMs` | Number | `5000` | Delay before automatic restart. |
+Per-key ANSI color overrides. Keys match theme roles: `accent`, `label`, `value`, `dim`, `idle`, `processing`, `warn`, `border`. Values are color names (`cyan`, `green`, `red`, etc.) or raw ANSI codes.
 
-## Advanced Features
-
-### Automatic Plan Tracking
-The HUD "eavesdrops" on AI responses. When the AI outputs a plan like:
-```markdown
-## Plan
-1. Fix bug A
-2. Test feature B
+```json
+{ "colors": { "accent": "magenta", "idle": "bGreen" } }
 ```
-The HUD will automatically display `🎯 0/2`. As the AI outputs `✅` or `Step 1 completed`, the progress bar updates in real-time.
+
+#### Performance (`performance`)
+
+| Key | Type | Default | Description |
+| :-- | :--- | :------ | :---------- |
+| `renderFps` | Number | `10` | Max UI refresh rate (frames per second) |
+| `pollIntervalMs` | Number | `2000` | Fallback file poll interval in milliseconds |
+
+#### Project (`project`)
+
+| Key | Type | Default | Description |
+| :-- | :--- | :------ | :---------- |
+| `name` | String | `null` | Default project to monitor (overridden by `--project` flag) |
+
+## What's Displayed
+
+| Field | Description |
+| :---- | :---------- |
+| **Status** | `● Idle` (green) or `● Processing...` (yellow) |
+| **Git branch** | Current git branch in the working directory (auto-detected) |
+| **CPU** | System CPU usage % — visible in `dev` layout |
+| **Model** | Current model, or `Multi-model` if multiple were used |
+| **Tokens** | Cumulative total with breakdown: input / output / cached / thoughts |
+| **Tools** | Top N tools by call count this session |
+| **Last** | Preview of the most recent user message |
+| **Duration** | Time since session start |
+| **History** | Cross-session totals (sessions, tokens, turns) — `dev` layout only |
+
+## Export
+
+Export the current session's metrics to a file and exit immediately:
+
+```bash
+gemini-hud --export json   # → gemini-hud-export-20260319-143205.json
+gemini-hud --export csv    # → gemini-hud-export-20260319-143205.csv
+```
+
+The CSV format uses a single header row + one data row, making it easy to append across multiple sessions for trend analysis.
+
+## Notifications (`--notify`)
+
+When `--notify` is active, gemini-hud rings the terminal bell **and** sends a system notification the moment Gemini finishes a response (status transitions from `processing` → `idle`).
+
+| Platform | Mechanism |
+| :------- | :-------- |
+| macOS | `osascript` — native Notification Center |
+| Linux | `notify-send` (falls back to bell) |
+| Windows | PowerShell Toast (falls back to bell) |
+
+## Sub-agent Awareness
+
+Gemini CLI may spawn sub-agents within a single session (experimental feature). Each sub-agent writes its own session file with `kind: "subagent"`. gemini-hud always prefers the **main session** (`kind: "main"`) so you see the top-level conversation, not a transient sub-task.
 
 ## FAQ
 
-### Q: Why does it require Node 20?
-It uses the latest ESM Loader Hooks to perform code injection without modifying the `gemini-cli` source files. This API is only stable in Node 20+.
+### Does it modify or slow down Gemini CLI?
+No. gemini-hud is a passive observer. It only reads files that Gemini CLI already writes — it does not attach to the process, inject code, or send any data to gemini-cli.
 
-### Q: Does it slow down the AI?
-No. The hook performs "Dirty Checking" in memory and transmits data via a zero-latency IPC Named Pipe only when data actually changes (e.g., when a new token is generated). There is zero disk I/O overhead.
+### What if I start a new Gemini session?
+gemini-hud automatically detects when a new session file appears and switches to monitoring it. Check interval is every 10 seconds.
+
+### Does it work with multiple concurrent Gemini sessions?
+gemini-hud monitors one session at a time — whichever is the most recently active main session. Multi-session aggregation is planned for a future release.
+
+### The panel shows "Waiting for Gemini CLI session..."
+Start a `gemini` session in the same directory, or use `--project <name>` to specify a project. gemini-hud will detect the session within a few seconds.
+
+### Can I use a theme without changing the config file?
+Yes — CLI flags always take priority: `gemini-hud --theme ocean --layout dev`.
 
 ## License
 MIT License
